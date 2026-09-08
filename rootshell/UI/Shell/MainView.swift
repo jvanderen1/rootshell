@@ -528,7 +528,7 @@ struct MainView: View {
                             errorView
                         }
                     }
-                    .overlay {
+                    .overlay(alignment: .top) {
                         if ghosttyApp.readiness == .ready {
                             muxDetachBannerOverlay
                         }

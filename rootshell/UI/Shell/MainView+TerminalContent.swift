@@ -397,48 +397,46 @@ extension MainView {
     /// Post-detach / already-attached / missing-mux banner. Hosted above both
     /// the terminal stack and the empty state — tmux -CC detach prunes every
     /// tab immediately, so a terminal-only overlay never paints.
+    ///
+    /// Sized to the card only (no full-bleed VStack). A max-size container in
+    /// `.overlay` steals Catalyst hits from the dismiss control even when the
+    /// spacer disables hit testing.
     @ViewBuilder
     var muxDetachBannerOverlay: some View {
         if let banner = muxDetachBanner {
-            VStack {
-                HStack(spacing: 10) {
-                    Image(systemName: banner.offer == nil ? "exclamationmark.triangle.fill" : "eject.circle.fill")
-                        .foregroundStyle(.secondary)
-                    Text(banner.message)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    if banner.offer != nil {
-                        Button("Reconnect") {
-                            reconnectFromMuxDetachBanner()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+            HStack(spacing: 10) {
+                Image(systemName: banner.offer == nil ? "exclamationmark.triangle.fill" : "eject.circle.fill")
+                    .foregroundStyle(.secondary)
+                Text(banner.message)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                if banner.offer != nil {
+                    Button("Reconnect") {
+                        reconnectFromMuxDetachBanner()
                     }
-                    Button {
-                        dismissMuxDetachBanner()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss")
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: 480)
-                .bannerBackground()
-                // Only the card receives clicks — not the empty space below —
-                // so the dismiss control stays hittable and the terminal works.
-                .padding(.top, 12)
-                Spacer()
-                    .allowsHitTesting(false)
+                Button {
+                    dismissMuxDetachBanner()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
+            .padding(.vertical, 10)
+            .frame(maxWidth: 480)
+            .bannerBackground()
+            .padding(.top, 12)
             .transition(.move(edge: .top).combined(with: .opacity))
             .animation(.easeInOut(duration: 0.2), value: muxDetachBanner)
         }
