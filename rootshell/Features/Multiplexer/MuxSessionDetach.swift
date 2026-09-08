@@ -268,10 +268,25 @@ enum MuxSessionDetach {
         )
     }
 
-    /// On explicit Close Tab / Close Split, destroy the bound zmx session so it
-    /// does not linger for reattach. Detach clears the binding first and uses
-    /// `.muxDetach`, so it never reaches here with a live zmx name.
-    static func scheduleZmxSessionDestroyIfNeeded(on terminal: Ghostty.TerminalView) {
+    /// True when Close Tab / Close Split should destroy a live zmx session
+    /// before tearing down the local client (closing the client alone is detach).
+    static func hasZmxSessionToDestroy(on terminal: Ghostty.TerminalView) -> Bool {
+        guard let binding = terminal.passthroughMultiplexer,
+              binding.type == .zmx,
+              let name = binding.sessionName,
+              SSHConfig.zmxKillCommandLine(sessionName: name) != nil else {
+            return false
+        }
+        return true
+    }
+
+    /// Destroy the bound zmx session, preferring an in-band probe on the live
+    /// tsshd/Citadel connection (no re-auth) so Bitwarden/agent keys do not
+    /// need a second approval. Falls back to a headless SSH exec.
+    ///
+    /// Must run **before** session teardown — probe uses the live transport,
+    /// and closing the client alone is zmx’s detach path.
+    static func destroyZmxSessionIfNeeded(on terminal: Ghostty.TerminalView) async {
         let binding = terminal.passthroughMultiplexer
         guard binding?.type == .zmx,
               let name = binding?.sessionName,
@@ -279,40 +294,57 @@ enum MuxSessionDetach {
             return
         }
 
-        // Drop the binding so a concurrent detach path cannot double-kill.
+        // Drop the binding so a concurrent detach/close path cannot double-kill.
         terminal.passthroughMultiplexer = nil
         AgentAttentionCenter.shared.topologyDidChange()
 
-        let connectionConfig = terminal.connectionConfig
-        Task { @MainActor in
-            if let ssh = connectionConfig.sshConfigForHistory
-                ?? connectionConfig.underlyingSSHConfig {
-                do {
-                    _ = try await HeadlessSSHExecutor.execute(
-                        config: ssh,
-                        command: command,
-                        timeout: 8,
-                        logLabel: "[zmx-kill]"
-                    )
-                } catch {
-                    // Best-effort: password-only hosts or offline networks may
-                    // fail; the local client is already closing either way.
-                    let detail = error.localizedDescription
-                    Ghostty.logger.info("zmx kill for \(name, privacy: .public) failed: \(detail, privacy: .public)")
-                }
+        // 1) Live tsshd probe — same connection, no re-auth.
+        if let trzsz = terminal.session as? TrzszSession {
+            do {
+                _ = try await trzsz.runProbeCommand(command)
+                Ghostty.logger.info("zmx kill via tsshd probe succeeded for \(name, privacy: .public)")
                 return
+            } catch {
+                let detail = error.localizedDescription
+                Ghostty.logger.info("zmx kill via tsshd probe failed for \(name, privacy: .public): \(detail, privacy: .public)")
             }
+        }
 
-            // Local zmx: Process is unavailable under Mac Catalyst. Type the
-            // kill into a short-lived /bin/sh via posix_spawn when possible.
-            #if os(macOS) && !targetEnvironment(macCatalyst)
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
-            try? process.run()
-            #else
-            Ghostty.logger.info("zmx kill skipped for local session \(name, privacy: .public) (no Catalyst Process)")
-            #endif
+        // 2) Headless SSH fallback (new connection — may prompt the agent).
+        let connectionConfig = terminal.connectionConfig
+        if let ssh = connectionConfig.sshConfigForHistory
+            ?? connectionConfig.underlyingSSHConfig {
+            do {
+                _ = try await HeadlessSSHExecutor.execute(
+                    config: ssh,
+                    command: command,
+                    timeout: 8,
+                    logLabel: "[zmx-kill]"
+                )
+                Ghostty.logger.info("zmx kill via headless SSH succeeded for \(name, privacy: .public)")
+            } catch {
+                let detail = error.localizedDescription
+                Ghostty.logger.error("zmx kill for \(name, privacy: .public) failed: \(detail, privacy: .public)")
+            }
+            return
+        }
+
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        try? process.run()
+        #else
+        Ghostty.logger.error("zmx kill skipped for local session \(name, privacy: .public) (no Catalyst Process)")
+        #endif
+    }
+
+    /// Fire-and-forget wrapper for call sites that cannot await. Prefer
+    /// ``destroyZmxSessionIfNeeded(on:)`` before teardown when possible.
+    static func scheduleZmxSessionDestroyIfNeeded(on terminal: Ghostty.TerminalView) {
+        guard hasZmxSessionToDestroy(on: terminal) else { return }
+        Task { @MainActor in
+            await destroyZmxSessionIfNeeded(on: terminal)
         }
     }
 

@@ -1555,12 +1555,25 @@ extension Ghostty {
             }
 
             // 1. Explicit tab/split close of a zmx attachment destroys the
-            // remote session (`zmx kill`). Detach uses `.muxDetach` and skips
-            // this so closing the client leaves the session for reattach.
-            if reason == .userClose {
-                MuxSessionDetach.scheduleZmxSessionDestroyIfNeeded(on: self)
+            // remote session (`zmx kill`) BEFORE tearing down the client —
+            // closing the client alone is zmx’s detach path. Prefer an
+            // in-band tsshd probe so agent keys do not need a second approval.
+            if reason == .userClose, MuxSessionDetach.hasZmxSessionToDestroy(on: self) {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await MuxSessionDetach.destroyZmxSessionIfNeeded(on: self)
+                    self.completeCleanupAfterSessionStop(reason: reason)
+                }
+                return
             }
 
+            completeCleanupAfterSessionStop(reason: reason)
+        }
+
+        /// Remainder of ``cleanup(reason:)`` after any zmx kill has finished
+        /// (or when no kill is needed). Kept separate so Close Tab can await
+        /// destroy on the live transport before `terminate()`.
+        private func completeCleanupAfterSessionStop(reason: CleanupReason) {
             // 2. Stop the session and close the PTY. The per-session-type
             // teardown semantics (resumable Trzsz/Mosh keep the server session
             // alive for .sceneTeardown; .userClose / .muxDetach terminate)
