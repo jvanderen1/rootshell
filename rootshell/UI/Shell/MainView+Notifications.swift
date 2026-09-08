@@ -318,8 +318,10 @@ extension MainView {
             // from the tab tree before (or as) this handler runs.
             if let targetWindow = notification.userInfo?["windowId"] as? String {
                 guard targetWindow == self.windowId else { return }
-            } else {
-                guard self.shouldHandleNotification(notification) else { return }
+            } else if !self.shouldHandleNotification(notification) {
+                // No windowId and no pane object: only the focused window
+                // accepts the banner (Mac Catalyst often has >1 scene).
+                guard self.isWindowFocused || self.windowIsKeyWindow else { return }
             }
             let offer = notification.userInfo?["offer"] as? MuxSessionResume.ReconnectOffer
             let name = offer?.displayName

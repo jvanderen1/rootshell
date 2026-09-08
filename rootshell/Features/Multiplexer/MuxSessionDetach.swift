@@ -120,8 +120,8 @@ enum MuxSessionDetach {
         guard let attachment = attachment(on: terminal) else { return .none }
         switch attachment.kind {
         case .tmuxControlMode:
+            // Banner is posted inside requestGracefulDetach (via sendTmuxDetach).
             terminal.sendTmuxDetach()
-            announce(attachment, reconnectFrom: terminal)
             return .detached(attachment)
         case .keySequence(let type):
             performKeySequenceDetach(on: terminal, type: type)
@@ -153,12 +153,8 @@ enum MuxSessionDetach {
                 sessionName: name,
                 displayName: displayName(for: .tmux, sessionName: name)
             )
+            // Banner is posted inside requestGracefulDetach.
             controller.requestGracefulDetach(source: "keybind")
-            // Window tabs don’t host the gateway surface; any leaf still
-            // carries windowId (and usually the SSH reconnect config).
-            let gatewayView = tab.splitTree.terminalLeaves.first(where: { $0.tmuxController === controller })
-                ?? tab.splitTree.terminalLeaves.first
-            announce(attachment, reconnectFrom: gatewayView)
             return .detached(attachment)
         }
 
@@ -190,13 +186,9 @@ enum MuxSessionDetach {
                     sessionName: name,
                     displayName: displayName(for: .tmux, sessionName: name)
                 )
+                // Banner is posted inside requestGracefulDetach.
                 controller.requestGracefulDetach(source: "detach-all")
                 detached.append(attachment)
-                // Window tabs don’t host the gateway surface; fall back to any
-                // leaf so we still have a windowId / reconnect SSH config.
-                let gatewayView = tab.splitTree.terminalLeaves.first(where: { $0.tmuxController === controller })
-                    ?? tab.splitTree.terminalLeaves.first
-                postReconnectOffer(attachment: attachment, terminal: gatewayView)
                 continue
             }
 
@@ -366,22 +358,43 @@ enum MuxSessionDetach {
         return type.rawValue
     }
 
-    private static func announce(_ attachment: Attachment, reconnectFrom terminal: Ghostty.TerminalView? = nil) {
+    /// Posted by `TmuxController.requestGracefulDetach` so every tmux -CC leave
+    /// path (context-menu confirm, dashboard, ESC, keybind, tab-close) shows the
+    /// same reconnect banner zmx already got via `detach(on:)`.
+    static func notifyControlModeDetached(
+        sessionName: String?,
+        windowId: String,
+        terminal: Ghostty.TerminalView?
+    ) {
+        let attachment = Attachment(
+            kind: .tmuxControlMode,
+            sessionName: sessionName,
+            displayName: displayName(for: .tmux, sessionName: sessionName)
+        )
+        announce(attachment, reconnectFrom: terminal, windowId: windowId)
+    }
+
+    private static func announce(
+        _ attachment: Attachment,
+        reconnectFrom terminal: Ghostty.TerminalView? = nil,
+        windowId: String? = nil
+    ) {
         let message = String(
             localized: "Detached from \(attachment.displayName). Session keeps running.",
             comment: "Accessibility announcement after detaching a multiplexer"
         )
         UIAccessibility.post(notification: .announcement, argument: message)
-        postReconnectOffer(attachment: attachment, terminal: terminal)
+        postReconnectOffer(attachment: attachment, terminal: terminal, windowId: windowId)
     }
 
     private static func postReconnectOffer(
         attachment: Attachment,
-        terminal: Ghostty.TerminalView?
+        terminal: Ghostty.TerminalView?,
+        windowId: String? = nil
     ) {
         var userInfo: [AnyHashable: Any] = ["displayName": attachment.displayName]
-        if let terminal {
-            userInfo["windowId"] = terminal.windowId
+        if let windowId = windowId ?? terminal?.windowId {
+            userInfo["windowId"] = windowId
         }
         if let terminal,
            let ssh = terminal.connectionConfig.sshConfigForHistory

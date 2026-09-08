@@ -320,9 +320,10 @@ private struct TmuxTabDialogsModifier: ViewModifier {
             titleVisibility: .visible
         ) {
             Button("Detach Session", role: .destructive) {
-                guard let tab = dialogs.detachConfirmGatewayTab,
-                      let controller = controller(tab) else { return }
-                controller.detachGatewayClient()
+                guard let tab = dialogs.detachConfirmGatewayTab else { return }
+                // Same funnel as Tabs → Detach Session / zmx: graceful detach
+                // posts the reconnect banner from TmuxController.
+                _ = MuxSessionDetach.detach(tab: tab, tmuxController: controller)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
