@@ -139,12 +139,12 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     // Shell Operations
     /// Open settings
     case open_settings = "open_settings"
+    case toggle_visor = "toggle_visor"
+    case toggle_quick_settings = "toggle_quick_settings"
     /// Open host browser
     case browse_hosts = "browse_hosts"
     /// Open profiles browser
     case browse_profiles = "browse_profiles"
-    /// Connect to a specific connection profile (parameter = profile UUID string)
-    case open_profile = "open_profile"
     /// Toggle AI agent panel
     case toggle_ai_agent = "toggle_ai_agent"
     /// Toggle voice agent mode
@@ -318,7 +318,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
              .toggle_auto_redact:
             return .view
 
-        case .open_settings, .browse_hosts, .browse_profiles, .open_profile, .toggle_ai_agent, .toggle_voice_agent:
+        case .toggle_visor, .open_settings, .toggle_quick_settings, .browse_hosts, .browse_profiles, .toggle_ai_agent, .toggle_voice_agent:
             return .shell
 
         case .select_all, .clear_screen, .reset_terminal,
@@ -383,10 +383,11 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .toggle_split_zoom: return String(localized: "Toggle Split Zoom", comment: "Keybind action")
         case .equalize_splits: return String(localized: "Equalize Splits", comment: "Keybind action")
 
+        case .toggle_visor: return String(localized: "Toggle Visor")
+        case .toggle_quick_settings: return String(localized: "Quick Settings")
         case .open_settings: return String(localized: "Settings", comment: "Keybind action: open settings")
         case .browse_hosts: return String(localized: "Browse Hosts", comment: "Keybind action")
         case .browse_profiles: return String(localized: "Browse Profiles", comment: "Keybind action")
-        case .open_profile: return String(localized: "Open Profile", comment: "Keybind action: connect to a saved connection profile")
         case .toggle_ai_agent: return String(localized: "Toggle AI Agent", comment: "Keybind action")
         case .toggle_voice_agent: return String(localized: "Toggle Voice Agent", comment: "Keybind action")
         case .toggle_tab_bar: return String(localized: "Toggle Top Tab Bar", comment: "Keybind action")
@@ -473,9 +474,10 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .equalize_splits: return .equalizeSplits
 
         case .open_settings: return .openSettings
+        case .toggle_visor: return .toggleVisorOverlay
+        case .toggle_quick_settings: return .toggleQuickSettings
         case .browse_hosts: return .browseHosts
         case .browse_profiles: return .browseProfiles
-        case .open_profile: return .openConnectionProfile
         case .toggle_ai_agent: return .toggleAIAgent
         case .toggle_voice_agent: return .toggleVoiceAgent
         case .toggle_tab_bar: return .toggleTabBar
@@ -551,7 +553,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     /// Parameterized actions skip action-based dedup in KeybindManager.reloadBindings().
     var isParameterized: Bool {
         switch self {
-        case .send_text, .send_esc, .send_csi, .open_profile:
+        case .send_text, .send_esc, .send_csi:
             return true
         default:
             return false
@@ -561,8 +563,8 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     /// Whether this action needs wantsPriorityOverSystemBehavior
     var needsSystemPriority: Bool {
         switch self {
-        case .close_tab, .new_tab, .new_window, .new_local_shell, .start_search, .toggle_compose,
-             .send_text, .send_esc, .send_csi, .open_profile,
+        case .toggle_visor, .close_tab, .new_tab, .new_window, .new_local_shell, .start_search, .toggle_compose,
+             .send_text, .send_esc, .send_csi,
              // ⌘⌥[ / ⌘⌥]: Option composes a different character, so the menu
              // key-equivalent path can't claim the press before the terminal
              // encodes it as Alt-[; a prioritized UIKeyCommand must own it.
@@ -577,8 +579,8 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     static var customizableActions: [KeybindAction] {
         allCases.filter { action in
             switch action {
-            case .unbind, .send_text, .send_esc, .send_csi, .open_profile:
-                // Profile shortcuts are assigned per-profile in the profile editor.
+            case .toggle_visor: return supportsVisorOverlay
+            case .unbind, .send_text, .send_esc, .send_csi:
                 return false
             default:
                 return !action.isControlCharacter
@@ -610,7 +612,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
              .select_tab_4, .select_tab_5, .select_tab_6, .select_tab_7, .select_tab_8,
              .select_tab_9, .split_right, .split_down, .navigate_split_left,
              .navigate_split_right, .navigate_split_up, .navigate_split_down,
-             .toggle_split_zoom, .equalize_splits, .open_settings, .browse_hosts,
+             .toggle_split_zoom, .equalize_splits, .open_settings, .toggle_quick_settings, .browse_hosts,
              .browse_profiles, .toggle_ai_agent, .toggle_voice_agent, .toggle_tab_bar, .toggle_group_mode, .toggle_transparency,
              .toggle_titlebar, .toggle_auto_redact,
              .toggle_background_effect, .toggle_tab_switcher, .toggle_tab_expose, .show_tmux_sessions,
@@ -635,7 +637,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
             return true
 
         // These actions don't have menu entries.
-        case .reset_terminal, .send_text, .send_esc, .send_csi, .open_profile:
+        case .toggle_visor, .reset_terminal, .send_text, .send_esc, .send_csi:
             return false
 
         // Control characters are handled separately

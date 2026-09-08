@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import Combine
 import os
 
@@ -101,10 +102,6 @@ final class KeybindManager: ObservableObject {
             Keybind(key: .leftBrace, modifiers: .command, action: .previous_tab),
             Keybind(key: .rightBrace, modifiers: .command, action: .next_tab),
             Keybind(key: .s, modifiers: [.command, .shift], action: .show_tmux_sessions),
-            // Detach Session / Detach All: no default chord. macOS owns ⌘⌥D
-            // (Dock hide), and inventing ⌘⌥E would surprise anyone who already
-            // bound that. Menus + context menus always work; users can assign
-            // a shortcut under Settings → Keybinds.
             Keybind(key: .x, modifiers: [.command, .shift], action: .detach_other_clients),
 
             // Tab Selection
@@ -167,6 +164,7 @@ final class KeybindManager: ObservableObject {
 
             // Shell Operations
             Keybind(key: .comma, modifiers: .command, action: .open_settings),
+            Keybind(key: .comma, modifiers: [.command, .shift], action: .toggle_quick_settings),
             Keybind(key: .b, modifiers: .command, action: .browse_hosts),
             Keybind(key: .p, modifiers: [.command, .shift], action: .browse_profiles),
             Keybind(key: .i, modifiers: .command, action: .toggle_ai_agent),
@@ -200,13 +198,18 @@ final class KeybindManager: ObservableObject {
             Keybind(key: .y, modifiers: .control, action: .ctrl_y),
             Keybind(key: .z, modifiers: .control, action: .ctrl_z),
         ]
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            defaultBindings.append(Keybind(key: .escape, modifiers: .shift, action: .toggle_visor))
+        }
+        #endif
     }
 
     // MARK: - Binding Lookup
 
     /// Get the action for a given sequence
     func action(for sequence: KeySequence) -> KeybindAction? {
-        activeBindings.first { $0.sequence == sequence }?.action
+        activeBindings.first { $0.sequence == sequence && $0.action.isAvailableForVisorDispatch }?.action
     }
 
     /// Get the action for a single trigger
@@ -226,13 +229,13 @@ final class KeybindManager: ObservableObject {
 
     /// Get bindings that start with a specific trigger (for sequence matching)
     func bindingsStartingWith(trigger: KeyTrigger) -> [Keybind] {
-        activeBindings.filter { $0.sequence.matchesPrefix(trigger) }
+        activeBindings.filter { $0.sequence.matchesPrefix(trigger) && $0.action.isAvailableForVisorDispatch }
     }
 
     /// Check if a trigger is a sequence prefix (has bindings that start with it)
     func isSequencePrefix(_ trigger: KeyTrigger) -> Bool {
         activeBindings.contains { keybind in
-            keybind.sequence.isSequence && keybind.sequence.matchesPrefix(trigger)
+            keybind.action.isAvailableForVisorDispatch && keybind.sequence.isSequence && keybind.sequence.matchesPrefix(trigger)
         }
     }
 
@@ -241,24 +244,9 @@ final class KeybindManager: ObservableObject {
         activeBindings.first { $0.action == action }
     }
 
-    /// Get the keybind for a parameterized action (e.g. open_profile:<uuid>)
-    func keybind(for action: KeybindAction, parameter: String) -> Keybind? {
-        activeBindings.first { $0.action == action && $0.actionParameter == parameter }
-    }
-
-    /// Shortcut sequence currently bound to a connection profile, if any
-    func keybind(forProfileID profileID: UUID) -> Keybind? {
-        keybind(for: .open_profile, parameter: profileID.uuidString)
-    }
-
-    /// Human-readable shortcut glyphs for a profile (e.g. "⌘⇧1"), or nil when unbound
-    func shortcutDescription(forProfileID profileID: UUID) -> String? {
-        keybind(forProfileID: profileID)?.sequence.symbolDescription
-    }
-
     /// Get the keybind for a given sequence (includes action parameter)
     func keybind(for sequence: KeySequence) -> Keybind? {
-        activeBindings.first { $0.sequence == sequence }
+        activeBindings.first { $0.sequence == sequence && $0.action.isAvailableForVisorDispatch }
     }
 
     /// Get the keybind for a single trigger (includes action parameter)
@@ -269,9 +257,8 @@ final class KeybindManager: ObservableObject {
     // MARK: - User Overrides
 
     /// Set a user override for an action
-    func setOverride(sequence: KeySequence, action: KeybindAction, parameter: String? = nil) {
-        let paramLabel = parameter.map { ":\($0)" } ?? ""
-        Self.logger.info("Setting override: \(sequence.ghosttyFormat) -> \(action.rawValue)\(paramLabel)")
+    func setOverride(sequence: KeySequence, action: KeybindAction) {
+        Self.logger.info("Setting override: \(sequence.ghosttyFormat) -> \(action.rawValue)")
 
         if action == .unbind {
             // Unbind is special: multiple actions can be unbound simultaneously.
@@ -279,12 +266,6 @@ final class KeybindManager: ObservableObject {
             // overrides (e.g., custom remaps) — reloadBindings() processes them in
             // order, so the later unbind suppresses the earlier remap.
             userOverrides.removeAll { $0.action == .unbind && $0.sequence == sequence }
-        } else if action.isParameterized, let parameter {
-            // Parameterized actions (open_profile, send_text, …) can have many
-            // bindings that share the same action with different params.
-            userOverrides.removeAll {
-                $0.action == action && $0.actionParameter == parameter
-            }
         } else {
             // Normal action: one key per action, remove old override for this action
             userOverrides.removeAll { $0.action == action }
@@ -298,7 +279,6 @@ final class KeybindManager: ObservableObject {
         let override = Keybind(
             sequence: sequence,
             action: action,
-            actionParameter: parameter,
             isUserOverride: true,
             source: .userOverride
         )
@@ -309,18 +289,8 @@ final class KeybindManager: ObservableObject {
     }
 
     /// Set a user override from a single trigger
-    func setOverride(trigger: KeyTrigger, action: KeybindAction, parameter: String? = nil) {
-        setOverride(sequence: KeySequence(trigger: trigger), action: action, parameter: parameter)
-    }
-
-    /// Bind or replace the keyboard shortcut for a connection profile
-    func setProfileShortcut(sequence: KeySequence, profileID: UUID) {
-        setOverride(sequence: sequence, action: .open_profile, parameter: profileID.uuidString)
-    }
-
-    /// Remove the keyboard shortcut for a connection profile (default: none)
-    func clearProfileShortcut(profileID: UUID) {
-        removeOverride(for: .open_profile, parameter: profileID.uuidString)
+    func setOverride(trigger: KeyTrigger, action: KeybindAction) {
+        setOverride(sequence: KeySequence(trigger: trigger), action: action)
     }
 
     /// Explicitly unbind an action (removes its shortcut entirely)
@@ -362,16 +332,6 @@ final class KeybindManager: ObservableObject {
         // Also remove any unbind override targeting this action
         userOverrides.removeAll {
             $0.action == .unbind && $0.actionParameter == action.rawValue
-        }
-        saveUserOverrides()
-        reloadBindings()
-    }
-
-    /// Remove a parameterized user override (e.g. a single profile shortcut)
-    func removeOverride(for action: KeybindAction, parameter: String) {
-        Self.logger.info("Removing override for: \(action.rawValue):\(parameter)")
-        userOverrides.removeAll {
-            $0.action == action && $0.actionParameter == parameter
         }
         saveUserOverrides()
         reloadBindings()

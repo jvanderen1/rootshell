@@ -68,7 +68,7 @@ final class KeybindCommandGenerator: ObservableObject {
 
         for binding in keybindManager.activeBindings {
             // Skip control character actions - these are handled specially in pressesBegan
-            guard !binding.action.isControlCharacter else { continue }
+            guard binding.action.isAvailableForVisorDispatch, !binding.action.isControlCharacter else { continue }
 
             // Skip terminal-only actions that don't need UIKeyCommands
             // (handled directly via ghostty_surface_binding_action)
@@ -121,20 +121,19 @@ final class KeybindCommandGenerator: ObservableObject {
     private func shouldGenerateCommand(for binding: Keybind) -> Bool {
         switch binding.action {
         // App actions need UIKeyCommands to trigger
-        case .new_local_shell, .new_tab, .new_window, .close_tab, .duplicate_ssh_tab,
+        case .toggle_visor, .new_local_shell, .new_tab, .new_window, .close_tab, .duplicate_ssh_tab,
              .previous_tab, .next_tab, .select_tab_1, .select_tab_2, .select_tab_3,
              .select_tab_4, .select_tab_5, .select_tab_6, .select_tab_7, .select_tab_8,
              .select_tab_9, .split_right, .split_down, .navigate_split_left,
              .navigate_split_right, .navigate_split_up, .navigate_split_down,
-             .toggle_split_zoom, .equalize_splits, .open_settings, .browse_hosts,
+             .toggle_split_zoom, .equalize_splits, .open_settings, .toggle_quick_settings, .browse_hosts,
              .browse_profiles, .toggle_ai_agent, .toggle_voice_agent, .toggle_tab_bar, .toggle_group_mode, .toggle_tab_switcher,
-             .toggle_tab_expose, .previous_group, .next_group, .show_tmux_sessions,
-             .detach_session, .detach_all_sessions, .detach_other_clients,
+             .toggle_tab_expose, .previous_group, .next_group, .show_tmux_sessions, .detach_session, .detach_all_sessions, .detach_other_clients,
              .toggle_transparency, .toggle_titlebar, .toggle_auto_redact, .toggle_background_effect, .toggle_compose,
              .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source,
              .increase_font_size, .decrease_font_size,
              .reset_font_size, .start_search, .select_all, .toggle_theme_picker,
-             .toggle_clipboard_manager, .brightness_boost, .open_profile:
+             .toggle_clipboard_manager, .brightness_boost:
             return true
 
         // Terminal actions are handled via ghostty_surface_binding_action
@@ -206,17 +205,7 @@ final class KeybindCommandGenerator: ObservableObject {
 
         // Set discoverability title for iPad keyboard shortcuts overlay
         #if !os(visionOS)
-        if binding.action == .open_profile,
-           let param = binding.actionParameter,
-           let profileID = UUID(uuidString: param),
-           let profile = ConnectionProfileManager.shared.profile(for: profileID) {
-            command.discoverabilityTitle = String(
-                localized: "Open \(profile.name)",
-                comment: "Keyboard shortcut discoverability title for opening a connection profile"
-            )
-        } else {
-            command.discoverabilityTitle = binding.action.displayName
-        }
+        command.discoverabilityTitle = binding.action.displayName
         #endif
 
         // User overrides and external config bindings need priority to override
