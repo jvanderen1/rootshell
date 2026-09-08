@@ -330,7 +330,11 @@ extension MainView {
         }
 
         observerBag.observeOnMainActor(.muxAutoStartDidFallback) { [self] notification in
-            guard self.shouldHandleNotification(notification) else { return }
+            if let targetWindow = notification.userInfo?["windowId"] as? String {
+                guard targetWindow == self.windowId else { return }
+            } else {
+                guard self.shouldHandleNotification(notification) else { return }
+            }
             let wanted = (notification.userInfo?["wanted"] as? String) ?? "multiplexer"
             self.muxDetachBanner = MuxDetachBannerState(
                 message: String(

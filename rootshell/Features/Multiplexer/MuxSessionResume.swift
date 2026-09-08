@@ -183,15 +183,16 @@ enum MuxSessionResume {
             } else if let pass = view.passthroughMultiplexer {
                 bindingType = pass.type
                 bindingSession = pass.sessionName
-            } else if type == .zmx, ssh.zmxAutoEnable {
+            } else if type == .zmx, ssh.zmxAutoEnable, !view.multiplexerAutoStartFellBack {
                 // Binding may not be applied yet on a just-opened pane; still
                 // treat an in-flight zmx auto-start as the live attachment.
                 bindingType = .zmx
                 bindingSession = ssh.zmxSessionNameForConnection
-            } else if type == .herdr, ssh.herdrAutoEnable {
+            } else if type == .herdr, ssh.herdrAutoEnable, !view.multiplexerAutoStartFellBack {
                 bindingType = .herdr
                 bindingSession = ssh.herdrSessionNameForConnection
-            } else if type == .tmux, ssh.tmuxAutoEnable, ssh.tmuxAutoMode == .regular {
+            } else if type == .tmux, ssh.tmuxAutoEnable, ssh.tmuxAutoMode == .regular,
+                      !view.multiplexerAutoStartFellBack {
                 bindingType = .tmux
                 bindingSession = ssh.tmuxSessionNameForConnection
             } else {
