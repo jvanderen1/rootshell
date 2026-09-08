@@ -314,7 +314,13 @@ extension MainView {
         }
 
         observerBag.observeOnMainActor(.muxSessionDidDetach) { [self] notification in
-            guard self.shouldHandleNotification(notification) else { return }
+            // Prefer windowId: tmux -CC prune can remove the notifying pane
+            // from the tab tree before (or as) this handler runs.
+            if let targetWindow = notification.userInfo?["windowId"] as? String {
+                guard targetWindow == self.windowId else { return }
+            } else {
+                guard self.shouldHandleNotification(notification) else { return }
+            }
             let offer = notification.userInfo?["offer"] as? MuxSessionResume.ReconnectOffer
             let name = offer?.displayName
                 ?? (notification.userInfo?["displayName"] as? String)

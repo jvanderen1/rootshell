@@ -154,6 +154,8 @@ enum MuxSessionDetach {
                 displayName: displayName(for: .tmux, sessionName: name)
             )
             controller.requestGracefulDetach(source: "keybind")
+            // Window tabs don’t host the gateway surface; any leaf still
+            // carries windowId (and usually the SSH reconnect config).
             let gatewayView = tab.splitTree.terminalLeaves.first(where: { $0.tmuxController === controller })
                 ?? tab.splitTree.terminalLeaves.first
             announce(attachment, reconnectFrom: gatewayView)
@@ -190,7 +192,10 @@ enum MuxSessionDetach {
                 )
                 controller.requestGracefulDetach(source: "detach-all")
                 detached.append(attachment)
+                // Window tabs don’t host the gateway surface; fall back to any
+                // leaf so we still have a windowId / reconnect SSH config.
                 let gatewayView = tab.splitTree.terminalLeaves.first(where: { $0.tmuxController === controller })
+                    ?? tab.splitTree.terminalLeaves.first
                 postReconnectOffer(attachment: attachment, terminal: gatewayView)
                 continue
             }
@@ -375,6 +380,9 @@ enum MuxSessionDetach {
         terminal: Ghostty.TerminalView?
     ) {
         var userInfo: [AnyHashable: Any] = ["displayName": attachment.displayName]
+        if let terminal {
+            userInfo["windowId"] = terminal.windowId
+        }
         if let terminal,
            let ssh = terminal.connectionConfig.sshConfigForHistory
             ?? terminal.connectionConfig.underlyingSSHConfig {
@@ -394,6 +402,8 @@ enum MuxSessionDetach {
                 profileID: terminal.sourceProfileID
             )
         }
-        NotificationCenter.default.post(name: .muxSessionDidDetach, object: terminal, userInfo: userInfo)
+        // object: nil — do not require the pane to still be in the tab tree.
+        // tmux -CC prune tears windows down as soon as control mode ends.
+        NotificationCenter.default.post(name: .muxSessionDidDetach, object: nil, userInfo: userInfo)
     }
 }

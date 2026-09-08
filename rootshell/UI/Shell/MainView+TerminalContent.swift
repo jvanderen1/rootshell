@@ -314,8 +314,8 @@ extension MainView {
             // tmux -CC window placeholder restored from disk, awaiting reconcile
             tmuxReconnectingOverlay
 
-            // Post-detach / already-attached mux banner
-            muxDetachBannerOverlay
+            // Detach banner lives on MainView’s content area (not here) so it
+            // still shows after tmux -CC prune empties every tab.
 
             // Theme picker overlay
             themePickerOverlayView(isPresented: $showThemePickerOverlay)
@@ -394,8 +394,11 @@ extension MainView {
             .bannerBackground()
     }
 
+    /// Post-detach / already-attached / missing-mux banner. Hosted above both
+    /// the terminal stack and the empty state — tmux -CC detach prunes every
+    /// tab immediately, so a terminal-only overlay never paints.
     @ViewBuilder
-    private var muxDetachBannerOverlay: some View {
+    var muxDetachBannerOverlay: some View {
         if let banner = muxDetachBanner {
             VStack {
                 HStack(spacing: 10) {

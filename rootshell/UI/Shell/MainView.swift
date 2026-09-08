@@ -507,23 +507,31 @@ struct MainView: View {
                         }
                     }
                     
-                    // Terminal view
-                    if ghosttyApp.readiness == .ready, !terminals.isEmpty {
-                        terminalAndSidebarContent(geometry: geometry)
-                    } else if ghosttyApp.readiness == .ready, terminals.isEmpty, !windowClosingAfterTabTransfer {
-                        // Empty state - shown when all tabs are closed
-                        EmptyStateResponder(
-                            onNewTab: addNewTab,
-                            onNewLocalShell: handleNewTabCommand
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if ghosttyApp.readiness == .ready, terminals.isEmpty {
-                        Color.clear
+                    // Terminal view (detach banner overlays empty state too —
+                    // tmux -CC prune removes every tab in one go).
+                    Group {
+                        if ghosttyApp.readiness == .ready, !terminals.isEmpty {
+                            terminalAndSidebarContent(geometry: geometry)
+                        } else if ghosttyApp.readiness == .ready, terminals.isEmpty, !windowClosingAfterTabTransfer {
+                            // Empty state - shown when all tabs are closed
+                            EmptyStateResponder(
+                                onNewTab: addNewTab,
+                                onNewLocalShell: handleNewTabCommand
+                            )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if ghosttyApp.readiness == .loading {
-                        loadingView
-                    } else if ghosttyApp.readiness == .error {
-                        errorView
+                        } else if ghosttyApp.readiness == .ready, terminals.isEmpty {
+                            Color.clear
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if ghosttyApp.readiness == .loading {
+                            loadingView
+                        } else if ghosttyApp.readiness == .error {
+                            errorView
+                        }
+                    }
+                    .overlay {
+                        if ghosttyApp.readiness == .ready {
+                            muxDetachBannerOverlay
+                        }
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
