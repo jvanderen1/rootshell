@@ -1558,9 +1558,13 @@ extension Ghostty {
             // remote session (`zmx kill`) BEFORE tearing down the client —
             // closing the client alone is zmx’s detach path. Prefer an
             // in-band tsshd probe so agent keys do not need a second approval.
+            //
+            // Strongly capture `self`: closeTab removes the pane from the
+            // model immediately after cleanup returns, and a `[weak self]`
+            // Task would often see nil and skip both kill and teardown —
+            // leaving the zmx session alive (looks like detach).
             if reason == .userClose, MuxSessionDetach.hasZmxSessionToDestroy(on: self) {
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
+                Task { @MainActor in
                     await MuxSessionDetach.destroyZmxSessionIfNeeded(on: self)
                     self.completeCleanupAfterSessionStop(reason: reason)
                 }

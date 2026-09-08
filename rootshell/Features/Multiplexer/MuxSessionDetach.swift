@@ -294,12 +294,17 @@ enum MuxSessionDetach {
             return
         }
 
+        // Snapshot the live transport before clearing bindings / any close
+        // side effects — closeTab may already be removing us from the model.
+        let trzsz = terminal.session as? TrzszSession
+        let connectionConfig = terminal.connectionConfig
+
         // Drop the binding so a concurrent detach/close path cannot double-kill.
         terminal.passthroughMultiplexer = nil
         AgentAttentionCenter.shared.topologyDidChange()
 
         // 1) Live tsshd probe — same connection, no re-auth.
-        if let trzsz = terminal.session as? TrzszSession {
+        if let trzsz {
             do {
                 _ = try await trzsz.runProbeCommand(command)
                 Ghostty.logger.info("zmx kill via tsshd probe succeeded for \(name, privacy: .public)")
@@ -311,7 +316,6 @@ enum MuxSessionDetach {
         }
 
         // 2) Headless SSH fallback (new connection — may prompt the agent).
-        let connectionConfig = terminal.connectionConfig
         if let ssh = connectionConfig.sshConfigForHistory
             ?? connectionConfig.underlyingSSHConfig {
             do {

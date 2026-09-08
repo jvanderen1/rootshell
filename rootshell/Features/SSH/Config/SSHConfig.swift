@@ -804,11 +804,12 @@ struct SSHConfig: Codable, Hashable {
 
     /// Best-effort destroy for an explicit tab/split close. Names must already
     /// pass ``isEmbeddableZmxSessionName`` (no shell quoting). `--force` kills
-    /// the session even while this client is still attached.
+    /// the session even while this client is still attached. Wrapped in
+    /// `sh -c` so PATH prefix / `&&` work under tsshd `runCommand` and SSH exec.
     static func zmxKillCommandLine(sessionName: String) -> String? {
         guard isEmbeddableZmxSessionName(sessionName) else { return nil }
-        return "\(remoteExecPathPrefix)command -v zmx >/dev/null 2>&1"
-            + " && ZMX_SESSION_PREFIX= zmx kill --force \(sessionName)"
+        return "sh -c '\(remoteExecPathPrefix)command -v zmx >/dev/null 2>&1"
+            + " && ZMX_SESSION_PREFIX= exec zmx kill --force \(sessionName)'"
     }
 
     /// Shared zmx exec command used by all session types.
