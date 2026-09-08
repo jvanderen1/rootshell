@@ -1631,7 +1631,55 @@ extension Ghostty.TerminalView {
     }
 
     func writeSessionOutputToGhostty(data: Data) {
+        noteSessionOutputForMuxFallback(data)
         outputPipeline.writeSessionOutput(data)
+    }
+
+    /// Scans session bytes (plus a short carry) for the missing-mux auto-start
+    /// marker. Used by the legacy `handleSessionOutput` path; the live SSH sink
+    /// scans off-main in `makeSessionOutputSink` and calls
+    /// ``applyMuxAutoStartFallback(from:)`` directly.
+    func noteSessionOutputForMuxFallback(_ data: Data) {
+        guard !multiplexerAutoStartFellBack else { return }
+        let markerData = Data(SSHConfig.multiplexerMissingFallbackMarker.utf8)
+        var window = multiplexerFallbackScanTail
+        window.append(data)
+        let keep = max(markerData.count - 1, 0)
+        if window.count > keep + markerData.count * 2 {
+            window = Data(window.suffix(keep + markerData.count * 2))
+        }
+        multiplexerFallbackScanTail = Data(window.suffix(keep))
+        guard window.range(of: markerData) != nil,
+              let text = String(data: window, encoding: .utf8) else { return }
+        applyMuxAutoStartFallback(from: text)
+    }
+
+    /// Drop optimistic mux bindings and show the in-app banner when auto-start
+    /// fell back to `$SHELL` because the remote binary is missing.
+    func applyMuxAutoStartFallback(from text: String) {
+        guard text.contains(SSHConfig.multiplexerMissingFallbackMarker) else { return }
+        guard !multiplexerAutoStartFellBack else { return }
+        multiplexerAutoStartFellBack = true
+        multiplexerFallbackScanTail = Data()
+        rawMultiplexer = nil
+        passthroughMultiplexer = nil
+        AgentAttentionCenter.shared.topologyDidChange()
+
+        let wanted: String
+        if text.contains("(wanted herdr)") {
+            wanted = "herdr"
+        } else if text.contains("(wanted zmx)") {
+            wanted = "zmx"
+        } else if text.contains("(wanted tmux)") {
+            wanted = "tmux"
+        } else {
+            wanted = "multiplexer"
+        }
+        NotificationCenter.default.post(
+            name: .muxAutoStartDidFallback,
+            object: self,
+            userInfo: ["wanted": wanted]
+        )
     }
 
     func triggerHapticFeedback() {

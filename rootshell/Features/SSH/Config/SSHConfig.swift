@@ -652,13 +652,18 @@ struct SSHConfig: Codable, Hashable {
         return "main"
     }
 
+    /// Printed when an auto-start multiplexer binary is missing so the local UI
+    /// can drop its optimistic mux binding (and show a banner). Goes to stdout
+    /// so PTY exec clients always surface it before `$SHELL` / MOTD may clear.
+    static let multiplexerMissingFallbackMarker = "rootshell: multiplexer not found on remote"
+
     /// Builds the `sh -c '...'` line that attaches to (or creates) a tmux
     /// session, optionally in control mode (`-CC`), falling back to `$SHELL`
     /// when tmux is missing. The session name must already be validated as
     /// embeddable in the single-quoted command (see TmuxGatewaySessionStore).
     static func tmuxExecCommandLine(sessionName: String, controlMode: Bool) -> String {
         let cc = controlMode ? "-CC " : ""
-        return "sh -c '\(remoteExecPathPrefix)command -v tmux >/dev/null && exec tmux \(cc)new-session -A -s \(sessionName) || exec $SHELL'"
+        return "sh -c '\(remoteExecPathPrefix)command -v tmux >/dev/null && exec tmux \(cc)new-session -A -s \(sessionName) || { printf \"\\r\\n\\033[1;33m%s\\033[0m\\r\\n\" \"\(multiplexerMissingFallbackMarker); starting a normal shell (wanted tmux).\"; exec $SHELL; }'"
     }
 
     /// Session name to attach to for this connection. The profile's explicit
@@ -732,7 +737,7 @@ struct SSHConfig: Codable, Hashable {
     /// launch is attach-or-create, so no `-A` analogue is needed.
     static func herdrExecCommandLine(sessionName: String) -> String {
         let arg = isEmbeddableHerdrSessionName(sessionName) ? " --session \(sessionName)" : ""
-        return "sh -c '\(remoteExecPathPrefix)command -v herdr >/dev/null && exec herdr\(arg) || exec $SHELL'"
+        return "sh -c '\(remoteExecPathPrefix)command -v herdr >/dev/null && exec herdr\(arg) || { printf \"\\r\\n\\033[1;33m%s\\033[0m\\r\\n\" \"\(multiplexerMissingFallbackMarker); starting a normal shell (wanted herdr).\"; exec $SHELL; }'"
     }
 
     /// Shared herdr exec command used by all session types.
@@ -799,7 +804,15 @@ struct SSHConfig: Codable, Hashable {
         // Listed names already contain any configured session prefix.
         return "sh -c '\(remoteExecPathPrefix)command -v zmx >/dev/null"
             + " && ZMX_SESSION_PREFIX= exec zmx attach \(name)"
-            + " || exec $SHELL'"
+            + " || { printf \"\\r\\n\\033[1;33m%s\\033[0m\\r\\n\" \"\(multiplexerMissingFallbackMarker); starting a normal shell (wanted zmx).\"; exec $SHELL; }'"
+    }
+
+    /// Best-effort destroy for an explicit tab/split close. Names must already
+    /// pass ``isEmbeddableZmxSessionName`` (no shell quoting).
+    static func zmxKillCommandLine(sessionName: String) -> String? {
+        guard isEmbeddableZmxSessionName(sessionName) else { return nil }
+        return "\(remoteExecPathPrefix)command -v zmx >/dev/null 2>&1"
+            + " && ZMX_SESSION_PREFIX= zmx kill \(sessionName)"
     }
 
     /// Shared zmx exec command used by all session types.

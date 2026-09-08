@@ -26,9 +26,10 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
     /// adopted session. Captures the view-owned I/O plumbing (coalescer / gate /
     /// buffered writer) and the persistence-notify coalescer, exactly as the old
     /// `outputHandler` did. Runs on the session's background queue — no main
-    /// actor hop on the hot output path.
+    /// actor hop on the hot output path, except when a missing-mux auto-start
+    /// marker is detected (SSH never went through `writeSessionOutputToGhostty`).
     func makeSessionOutputSink() -> @Sendable (Data) -> Void {
-        outputPipeline.makeSessionOutputSink(
+        let base = outputPipeline.makeSessionOutputSink(
             useOutputCoalescer: shouldUseOutputCoalescer,
             terminalUUID: uuid,
             noteGatewayInboundBytes: { [weak self] byteCount in
@@ -39,6 +40,35 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
                 }
             }
         )
+        let marker = Data(SSHConfig.multiplexerMissingFallbackMarker.utf8)
+        let carry = OSAllocatedUnfairLock(initialState: Data())
+        let fired = OSAllocatedUnfairLock(initialState: false)
+        return { [weak self] data in
+            base(data)
+
+            // Scan off-main (including a short carry for split packets). Hop to
+            // MainActor only when the missing-mux marker is present.
+            let matchedText: String? = carry.withLock { tail -> String? in
+                if fired.withLock({ $0 }) { return nil }
+                var window = tail
+                window.append(data)
+                let keep = max(marker.count - 1, 0)
+                if window.count > keep + marker.count * 2 {
+                    window = Data(window.suffix(keep + marker.count * 2))
+                }
+                tail = Data(window.suffix(keep))
+                guard window.range(of: marker) != nil,
+                      let text = String(data: window, encoding: .utf8) else {
+                    return nil
+                }
+                fired.withLock { $0 = true }
+                return text
+            }
+            guard let matchedText else { return }
+            Task { @MainActor [weak self] in
+                self?.applyMuxAutoStartFallback(from: matchedText)
+            }
+        }
     }
 
     func sessionDidChangeTitle(_ title: String) {

@@ -357,22 +357,11 @@ extension Ghostty.TerminalView {
         #endif
 
         var remainingPresses = presses
-        #if os(iOS) && !targetEnvironment(macCatalyst)
-        // A configured Visor chord owns its physical key before Escape's
-        // mod-tap, tmux-detach, or overlay-dismiss paths can consume it.
-        for press in presses {
-            if let trigger = KeyTrigger(press: press), consumeVisorShortcut(trigger) {
-                remainingPresses.remove(press)
-                handled = true
-                shouldSkipSuper = true
-            }
-        }
-        #endif
 
         // Mod-tap interception: check each press against active rules
         let modTapRules = ModTapManager.shared.activeRulesByKey
         if !modTapRules.isEmpty {
-            for press in remainingPresses {
+            for press in presses {
                 if modTapInterceptor.handlePressBegan(press, rules: modTapRules) {
                     remainingPresses.remove(press)
                     handled = true
@@ -1835,15 +1824,6 @@ extension Ghostty.TerminalView {
     }
 
     @objc func handleEscapeKey(_ command: UIKeyCommand) {
-        #if os(iOS) && !targetEnvironment(macCatalyst)
-        // UIKit can route modified Escape through its plain-Escape command.
-        // Recover the held modifiers before treating it as terminal Escape.
-        if !KeyboardTracker.isSystemCancelChordPhysicallyDown() {
-            let modifiers = command.modifierFlags.union(KeyboardTracker.shared.shortcutRecoveryModifierFlags)
-            if consumeVisorShortcut(KeyTrigger(key: .escape,
-                modifiers: KeybindModifiers(uiModifierFlags: modifiers))) { return }
-        }
-        #endif
         if enclosingSplitHost?.cancelPaneDrag() == true {
             keysConsumedByOverlayAction.insert(.keyboardEscape)
             return
@@ -2352,6 +2332,14 @@ extension Ghostty.TerminalView {
         NotificationCenter.default.post(name: .showTmuxSessions, object: self)
     }
 
+    @objc func menuDetachSession(_ sender: Any?) {
+        NotificationCenter.default.post(name: .detachSession, object: self)
+    }
+
+    @objc func menuDetachAllSessions(_ sender: Any?) {
+        NotificationCenter.default.post(name: .detachAllSessions, object: self)
+    }
+
     @objc func menuDetachOtherClients(_ sender: Any?) {
         NotificationCenter.default.post(name: .detachOtherClients, object: self)
     }
@@ -2404,10 +2392,6 @@ extension Ghostty.TerminalView {
         performActionAsync("scroll_to_bottom")
     }
 
-    @objc func menuToggleQuickSettings(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleQuickSettings, object: self)
-    }
-
     @objc func menuToggleThemePicker(_ sender: Any?) {
         NotificationCenter.default.post(name: .toggleThemePicker, object: self)
     }
@@ -2448,8 +2432,6 @@ extension Ghostty.TerminalView {
             return
         }
 
-        if consumeVisorShortcut(commandTrigger) { return }
-
         // A custom plain-Escape binding may own the command that a translated
         // Cmd+Period delivery lands on. Give the physical chord first refusal
         // at a cmd+period binding before dispatching Escape.
@@ -2474,25 +2456,6 @@ extension Ghostty.TerminalView {
             Ghostty.logger.debug("handleKeybindCommand: No action for trigger \(trigFormat)")
             return
         }
-    }
-
-    /// Claim only the user's active Visor binding. Plain Escape and previous
-    /// bindings remain terminal input after a remap or when Visor is disabled.
-    @discardableResult
-    private func consumeVisorShortcut(_ trigger: KeyTrigger) -> Bool {
-        #if os(iOS) && !targetEnvironment(macCatalyst)
-        guard let binding = KeybindManager.shared.keybind(for: trigger),
-              binding.action == .toggle_visor else { return false }
-        if trigger.key == .escape {
-            guard !keysConsumedByOverlayAction.contains(.keyboardEscape) else { return true }
-            keysConsumedByOverlayAction.insert(.keyboardEscape)
-        }
-        commitKoreanCompositionIfNeeded(external: true)
-        NotificationCenter.default.post(name: .toggleVisorOverlay, object: self)
-        return true
-        #else
-        return false
-        #endif
     }
 
     /// Route a normalized trigger through sequence handling and then the active
@@ -2642,6 +2605,10 @@ extension Ghostty.TerminalView {
             userInfo["tabIndex"] = 9
         case .new_tab, .new_window, .close_tab:
             userInfo["windowId"] = windowId
+        case .open_profile:
+            if let parameter {
+                userInfo["profileID"] = parameter
+            }
         default:
             break
         }
