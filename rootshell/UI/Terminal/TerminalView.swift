@@ -509,6 +509,14 @@ extension Ghostty {
         /// attention or depend on alternate-screen ownership.
         var passthroughMultiplexer: RawMultiplexerBinding?
 
+        /// Set when auto-start printed `multiplexerMissingFallbackMarker`.
+        /// Blocks later binding and drives the missing-binary banner.
+        var multiplexerAutoStartFellBack: Bool = false
+
+        /// Carry buffer so a missing-mux marker split across two SSH packets
+        /// still matches.
+        var multiplexerFallbackScanTail: Data = Data()
+
         nonisolated(unsafe) var tmuxDetachInProgressAtomic: Bool = false
 
         var isTmuxDetachInProgress: Bool {

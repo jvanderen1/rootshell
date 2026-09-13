@@ -342,6 +342,23 @@ extension MainView {
             self.scheduleMuxDetachBannerDismiss()
         }
 
+        observerBag.observeOnMainActor(.muxAutoStartDidFallback) { [self] notification in
+            if let targetWindow = notification.userInfo?["windowId"] as? String {
+                guard targetWindow == self.windowId else { return }
+            } else {
+                guard self.shouldHandleNotification(notification) else { return }
+            }
+            let wanted = (notification.userInfo?["wanted"] as? String) ?? "multiplexer"
+            self.muxDetachBanner = MuxDetachBannerState(
+                message: String(
+                    localized: "\(wanted) not found on remote — started a normal shell.",
+                    comment: "Banner when mux auto-start falls back because the binary is missing"
+                ),
+                offer: nil
+            )
+            self.scheduleMuxDetachBannerDismiss()
+        }
+
         observerBag.observeOnMainActor(.increaseFontSize) { [self] notification in
             guard self.shouldHandleNotification(notification) else { return }
             guard terminals.indices.contains(selectedTabIndex),
